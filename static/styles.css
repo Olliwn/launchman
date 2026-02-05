@@ -6,7 +6,6 @@
 }
 
 :root {
-    /* macOS Dark Mode palette */
     --bg-window: rgba(30, 30, 30, 0.95);
     --bg-card: rgba(255, 255, 255, 0.06);
     --bg-card-hover: rgba(255, 255, 255, 0.1);
@@ -19,7 +18,9 @@
     --border-subtle: rgba(255, 255, 255, 0.06);
     --accent: #0a84ff;
     --accent-hover: #409cff;
-    --danger: #ff453a;
+    --green: #30d158;
+    --red: #ff453a;
+    --orange: #ff9f0a;
     --radius-sm: 6px;
     --radius-md: 8px;
     --radius-lg: 10px;
@@ -38,7 +39,6 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 
-/* Compact Container */
 .container {
     padding: 12px;
     min-height: 100vh;
@@ -46,7 +46,7 @@ body {
     flex-direction: column;
 }
 
-/* Header - Minimal */
+/* Header */
 header {
     display: flex;
     justify-content: space-between;
@@ -62,11 +62,7 @@ header {
     letter-spacing: -0.01em;
 }
 
-.header-content .subtitle {
-    display: none; /* Hide subtitle for compactness */
-}
-
-/* Compact Buttons */
+/* Buttons */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -104,8 +100,26 @@ header {
 }
 
 .btn-danger {
-    background: var(--danger);
+    background: var(--red);
     color: white;
+}
+
+.btn-success {
+    background: var(--green);
+    color: white;
+}
+
+.btn-success:hover {
+    filter: brightness(1.1);
+}
+
+.btn-stop {
+    background: var(--orange);
+    color: white;
+}
+
+.btn-stop:hover {
+    filter: brightness(1.1);
 }
 
 .btn-icon {
@@ -127,6 +141,11 @@ header {
 .btn-icon:hover {
     color: var(--text-primary);
     background: var(--bg-card-hover);
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* Compact Grid */
@@ -159,15 +178,32 @@ header {
     opacity: 1;
 }
 
-/* Color indicator dot */
-.app-color-dot {
+/* Status indicator */
+.app-status {
     width: 8px;
     height: 8px;
     border-radius: 50%;
     flex-shrink: 0;
+    background: var(--text-tertiary);
+    transition: all 0.3s ease;
 }
 
-/* App info - compact inline */
+.app-status.running {
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+}
+
+.app-status.starting {
+    background: var(--orange);
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* App info */
 .app-info {
     flex: 1;
     min-width: 0;
@@ -194,7 +230,7 @@ header {
     flex: 1;
 }
 
-/* Badges inline */
+/* Badges */
 .app-meta {
     display: flex;
     align-items: center;
@@ -231,29 +267,39 @@ header {
 .app-actions {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
     flex-shrink: 0;
 }
 
-.btn-launch {
+.btn-action {
     padding: 4px 10px;
     font-size: 11px;
-    background: var(--bg-button);
-    color: var(--text-primary);
     border-radius: var(--radius-sm);
+    min-width: 50px;
+    justify-content: center;
 }
 
-.btn-launch:hover {
-    background: var(--accent);
-    color: white;
-}
-
-.btn-launch svg {
+.btn-action svg {
     width: 11px;
     height: 11px;
 }
 
-/* Footer - minimal */
+.btn-open {
+    background: var(--bg-button);
+    color: var(--text-primary);
+}
+
+.btn-open:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.btn-open:disabled {
+    background: var(--bg-button);
+    color: var(--text-tertiary);
+}
+
+/* Footer */
 footer {
     margin-top: 8px;
     padding-top: 8px;
@@ -263,7 +309,7 @@ footer {
     font-size: 10px;
 }
 
-/* Modal - macOS sheet style */
+/* Modal */
 .modal {
     position: fixed;
     inset: 0;
@@ -313,7 +359,7 @@ footer {
     font-weight: 600;
 }
 
-/* Compact Form */
+/* Form */
 .form-group {
     margin-bottom: 10px;
 }
@@ -395,7 +441,7 @@ footer {
     font-size: 11px;
 }
 
-/* Scrollbar - macOS style */
+/* Scrollbar */
 ::-webkit-scrollbar {
     width: 6px;
 }

@@ -1,5 +1,5 @@
 /**
- * Web App Launcher - Frontend Logic (Compact macOS style)
+ * Launchman - Frontend with process management
  */
 
 let apps = [];
@@ -56,6 +56,52 @@ async function deleteApp(appId) {
     renderApps();
 }
 
+async function startApp(appId) {
+    const card = document.querySelector(`[data-id="${appId}"]`);
+    const statusDot = card?.querySelector('.app-status');
+    const startBtn = card?.querySelector('.btn-start');
+    
+    // Show starting state
+    if (statusDot) statusDot.className = 'app-status starting';
+    if (startBtn) {
+        startBtn.disabled = true;
+        startBtn.textContent = '...';
+    }
+    
+    try {
+        const response = await fetch(`/api/apps/${appId}/start`, { method: 'POST' });
+        const result = await response.json();
+        
+        // Update local state
+        const app = apps.find(a => a.id === appId);
+        if (app) app.running = result.running;
+        
+        // Re-render after a short delay to let the server start
+        setTimeout(() => {
+            fetchApps();
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Failed to start app:', error);
+        fetchApps();
+    }
+}
+
+async function stopApp(appId) {
+    try {
+        const response = await fetch(`/api/apps/${appId}/stop`, { method: 'POST' });
+        const result = await response.json();
+        
+        const app = apps.find(a => a.id === appId);
+        if (app) app.running = false;
+        
+        renderApps();
+    } catch (error) {
+        console.error('Failed to stop app:', error);
+        fetchApps();
+    }
+}
+
 // Render
 function renderApps() {
     if (apps.length === 0) {
@@ -64,15 +110,35 @@ function renderApps() {
     }
 
     appsGrid.innerHTML = apps.map(app => createAppRow(app)).join('');
-    
-    // Event listeners
-    appsGrid.querySelectorAll('.btn-launch').forEach(btn => {
+    attachEventListeners();
+}
+
+function attachEventListeners() {
+    // Start buttons
+    appsGrid.querySelectorAll('.btn-start').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            startApp(btn.dataset.id);
+        });
+    });
+
+    // Stop buttons
+    appsGrid.querySelectorAll('.btn-stop').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            stopApp(btn.dataset.id);
+        });
+    });
+
+    // Open buttons
+    appsGrid.querySelectorAll('.btn-open').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
             window.open(`http://localhost:${btn.dataset.port}`, '_blank');
         });
     });
 
+    // Edit buttons
     appsGrid.querySelectorAll('.btn-edit').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
@@ -80,6 +146,7 @@ function renderApps() {
         });
     });
 
+    // Delete buttons
     appsGrid.querySelectorAll('.btn-delete').forEach(btn => {
         btn.addEventListener('click', e => {
             e.stopPropagation();
@@ -87,21 +154,25 @@ function renderApps() {
         });
     });
 
-    // Click row to launch
+    // Double-click row to open (if running)
     appsGrid.querySelectorAll('.app-card').forEach(card => {
         card.addEventListener('dblclick', () => {
-            const port = card.dataset.port;
-            window.open(`http://localhost:${port}`, '_blank');
+            const appId = card.dataset.id;
+            const app = apps.find(a => a.id === appId);
+            if (app?.running) {
+                window.open(`http://localhost:${app.port}`, '_blank');
+            }
         });
     });
 }
 
 function createAppRow(app) {
     const runtime = app.runtime?.type || 'static';
+    const isRunning = app.running;
     
     return `
-        <div class="app-card" data-port="${app.port}">
-            <div class="app-color-dot" style="background: ${app.color}"></div>
+        <div class="app-card" data-id="${app.id}">
+            <div class="app-status ${isRunning ? 'running' : ''}" title="${isRunning ? 'Running' : 'Stopped'}"></div>
             <div class="app-info">
                 <span class="app-name">${esc(app.name)}</span>
                 <span class="app-description">${esc(app.description)}</span>
@@ -123,14 +194,37 @@ function createAppRow(app) {
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
                 </button>
-                <button class="btn btn-launch" data-port="${app.port}">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
-                        <polyline points="15 3 21 3 21 9"></polyline>
-                        <line x1="10" y1="14" x2="21" y2="3"></line>
-                    </svg>
-                    Open
-                </button>
+                ${isRunning ? `
+                    <button class="btn btn-action btn-stop" data-id="${app.id}" title="Stop">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <rect x="6" y="6" width="12" height="12" rx="1"></rect>
+                        </svg>
+                        Stop
+                    </button>
+                    <button class="btn btn-action btn-open" data-port="${app.port}" title="Open in browser">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                        Open
+                    </button>
+                ` : `
+                    <button class="btn btn-action btn-start btn-success" data-id="${app.id}" title="Start">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                        </svg>
+                        Start
+                    </button>
+                    <button class="btn btn-action btn-open" data-port="${app.port}" disabled title="Start app first">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                            <polyline points="15 3 21 3 21 9"></polyline>
+                            <line x1="10" y1="14" x2="21" y2="3"></line>
+                        </svg>
+                        Open
+                    </button>
+                `}
             </div>
         </div>
     `;
@@ -267,6 +361,11 @@ document.addEventListener('keydown', e => {
         closeDeleteModal();
     }
 });
+
+// Periodic status refresh (every 5 seconds)
+setInterval(() => {
+    fetchApps();
+}, 5000);
 
 // Init
 fetchApps();

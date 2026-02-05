@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Web App Launcher - Local Dashboard for self-hosted web apps.
+Launchman - Local web app launcher with process management.
 
 Run with: python main.py
 Access at: http://localhost:8000
@@ -8,8 +8,13 @@ Access at: http://localhost:8000
 
 import json
 import uuid
+import subprocess
+import signal
+import os
+import socket
 from pathlib import Path
 from typing import Optional
+from contextlib import closing
 
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -18,11 +23,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 
-app = FastAPI(title="Web App Launcher")
+app = FastAPI(title="Launchman")
 
-# Path to apps registry
+# Paths
 APPS_FILE = Path(__file__).parent / "apps.json"
 STATIC_DIR = Path(__file__).parent / "static"
+
+# Track running processes: {app_id: subprocess.Popen}
+running_processes: dict[str, subprocess.Popen] = {}
 
 
 class RuntimeInfo(BaseModel):
@@ -72,15 +80,104 @@ def get_used_ports(apps: list[dict], exclude_id: Optional[str] = None) -> set[in
 def find_available_port(apps: list[dict], preferred: int, exclude_id: Optional[str] = None) -> int:
     """Find an available port, starting from preferred."""
     used = get_used_ports(apps, exclude_id)
-    # Reserve port 8000 for the launcher itself
-    used.add(8000)
+    used.add(8000)  # Reserve for launcher
     
     if preferred not in used:
         return preferred
     
-    # Find next available port
     port = max(used) + 1
     return port
+
+
+def is_port_in_use(port: int) -> bool:
+    """Check if a port is currently in use."""
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as sock:
+        return sock.connect_ex(('127.0.0.1', port)) == 0
+
+
+def is_app_running(app_id: str, port: int) -> bool:
+    """Check if an app is running (process alive or port in use)."""
+    # Check if we have a tracked process
+    if app_id in running_processes:
+        proc = running_processes[app_id]
+        if proc.poll() is None:  # Process still running
+            return True
+        else:
+            # Process ended, clean up
+            del running_processes[app_id]
+    
+    # Also check if port is in use (app might be running externally)
+    return is_port_in_use(port)
+
+
+def start_app_process(app: dict) -> bool:
+    """Start an app's process."""
+    app_id = app["id"]
+    port = app["port"]
+    path = app["path"]
+    runtime = app.get("runtime", {})
+    command = runtime.get("command", "")
+    runtime_type = runtime.get("type", "static")
+    venv = runtime.get("venv")
+    
+    if not command or not path:
+        return False
+    
+    # Check if already running
+    if is_app_running(app_id, port):
+        return True
+    
+    # Build the command
+    if runtime_type == "python" and venv:
+        # Activate venv
+        venv_path = Path(venv) if Path(venv).is_absolute() else Path(path) / venv
+        python_bin = venv_path / "bin" / "python"
+        if python_bin.exists():
+            # Replace 'python' with venv python
+            command = command.replace("python ", f"{python_bin} ", 1)
+    
+    # For static sites, inject the port and set working directory
+    if runtime_type == "static" and "http.server" in command:
+        # Command already has port, just run it
+        pass
+    
+    try:
+        # Start process in background
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=path,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid  # Create new process group
+        )
+        running_processes[app_id] = proc
+        return True
+    except Exception as e:
+        print(f"Failed to start {app['name']}: {e}")
+        return False
+
+
+def stop_app_process(app_id: str) -> bool:
+    """Stop an app's process."""
+    if app_id not in running_processes:
+        return False
+    
+    proc = running_processes[app_id]
+    try:
+        # Kill process group
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except Exception:
+            pass
+    
+    if app_id in running_processes:
+        del running_processes[app_id]
+    
+    return True
 
 
 # API Routes
@@ -93,8 +190,12 @@ async def dashboard():
 
 @app.get("/api/apps")
 async def list_apps():
-    """List all registered apps."""
-    return load_apps()
+    """List all registered apps with running status."""
+    apps = load_apps()
+    # Add running status to each app
+    for app in apps:
+        app["running"] = is_app_running(app["id"], app["port"])
+    return apps
 
 
 @app.get("/api/apps/{app_id}")
@@ -103,6 +204,7 @@ async def get_app(app_id: str):
     apps = load_apps()
     for app in apps:
         if app["id"] == app_id:
+            app["running"] = is_app_running(app["id"], app["port"])
             return app
     raise HTTPException(status_code=404, detail="App not found")
 
@@ -112,10 +214,7 @@ async def add_app(app_data: AppCreate):
     """Add a new app. Auto-assigns port if there's a conflict."""
     apps = load_apps()
     
-    # Generate unique ID
     app_id = str(uuid.uuid4())[:8]
-    
-    # Auto-assign port if conflict
     port = find_available_port(apps, app_data.port)
     
     new_app = {
@@ -131,6 +230,7 @@ async def add_app(app_data: AppCreate):
     apps.append(new_app)
     save_apps(apps)
     
+    new_app["running"] = False
     return new_app
 
 
@@ -141,11 +241,9 @@ async def update_app(app_id: str, app_data: AppUpdate):
     
     for i, app in enumerate(apps):
         if app["id"] == app_id:
-            # Update fields if provided
             if app_data.name is not None:
                 app["name"] = app_data.name
             if app_data.port is not None:
-                # Check for port conflict
                 app["port"] = find_available_port(apps, app_data.port, exclude_id=app_id)
             if app_data.description is not None:
                 app["description"] = app_data.description
@@ -158,6 +256,7 @@ async def update_app(app_id: str, app_data: AppUpdate):
             
             apps[i] = app
             save_apps(apps)
+            app["running"] = is_app_running(app_id, app["port"])
             return app
     
     raise HTTPException(status_code=404, detail="App not found")
@@ -165,7 +264,10 @@ async def update_app(app_id: str, app_data: AppUpdate):
 
 @app.delete("/api/apps/{app_id}")
 async def delete_app(app_id: str):
-    """Delete an app."""
+    """Delete an app (stops it first if running)."""
+    # Stop if running
+    stop_app_process(app_id)
+    
     apps = load_apps()
     original_count = len(apps)
     apps = [a for a in apps if a["id"] != app_id]
@@ -177,13 +279,72 @@ async def delete_app(app_id: str):
     return {"success": True, "message": f"App {app_id} deleted"}
 
 
-# Mount static files (after API routes to avoid conflicts)
+@app.post("/api/apps/{app_id}/start")
+async def start_app(app_id: str):
+    """Start an app."""
+    apps = load_apps()
+    app = next((a for a in apps if a["id"] == app_id), None)
+    
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    
+    if is_app_running(app_id, app["port"]):
+        return {"success": True, "message": "Already running", "running": True}
+    
+    success = start_app_process(app)
+    
+    if success:
+        # Give it a moment to start
+        import time
+        time.sleep(0.5)
+        running = is_app_running(app_id, app["port"])
+        return {"success": True, "message": "Started", "running": running}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to start app")
+
+
+@app.post("/api/apps/{app_id}/stop")
+async def stop_app(app_id: str):
+    """Stop an app."""
+    apps = load_apps()
+    app = next((a for a in apps if a["id"] == app_id), None)
+    
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    
+    stop_app_process(app_id)
+    
+    return {"success": True, "message": "Stopped", "running": False}
+
+
+@app.get("/api/apps/{app_id}/status")
+async def app_status(app_id: str):
+    """Check if an app is running."""
+    apps = load_apps()
+    app = next((a for a in apps if a["id"] == app_id), None)
+    
+    if not app:
+        raise HTTPException(status_code=404, detail="App not found")
+    
+    running = is_app_running(app_id, app["port"])
+    return {"running": running}
+
+
+# Cleanup on shutdown
+@app.on_event("shutdown")
+def shutdown_event():
+    """Stop all running processes on shutdown."""
+    for app_id in list(running_processes.keys()):
+        stop_app_process(app_id)
+
+
+# Mount static files
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 if __name__ == "__main__":
     print("=" * 50)
-    print("  Web App Launcher")
+    print("  Launchman")
     print("=" * 50)
     print(f"  Dashboard: http://localhost:8000")
     print(f"  Apps file: {APPS_FILE}")
