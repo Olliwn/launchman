@@ -1,0 +1,27 @@
+[
+  {
+    "id": "example-app",
+    "name": "Example App",
+    "port": 3000,
+    "description": "My web application",
+    "color": "#0a84ff",
+    "path": "/path/to/your/project",
+    "runtime": {
+      "type": "python",
+      "command": "python main.py",
+      "venv": null
+    }
+  },
+  {
+    "id": "static-site",
+    "name": "Static Site",
+    "port": 8001,
+    "description": "HTML/CSS/JS project",
+    "color": "#34d399",
+    "path": "/path/to/static/site",
+    "runtime": {
+      "type": "static",
+      "command": "python -m http.server 8001"
+    }
+  }
+]

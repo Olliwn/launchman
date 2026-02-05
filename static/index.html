@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Launcher</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231e1e1e' width='100' height='100' rx='22'/><circle fill='%230a84ff' cx='50' cy='50' r='20'/></svg>">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>App Launcher</h1>
+            </div>
+            <button id="btn-add-app" class="btn btn-primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                Add
+            </button>
+        </header>
+
+        <main id="apps-grid" class="apps-grid">
+            <!-- App rows will be inserted here -->
+        </main>
+
+        <footer>
+            <p>localhost:8000</p>
+        </footer>
+    </div>
+
+    <!-- Add/Edit App Modal -->
+    <div id="modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">Add App</h2>
+                <button id="modal-close" class="btn-icon" style="opacity:1">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <form id="app-form">
+                <input type="hidden" id="app-id" name="id">
+                
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="app-name">Name</label>
+                        <input type="text" id="app-name" name="name" required placeholder="My App">
+                    </div>
+                    <div class="form-group">
+                        <label for="app-color">Color</label>
+                        <input type="color" id="app-color" name="color" value="#0a84ff">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="app-port">Port</label>
+                        <input type="number" id="app-port" name="port" required min="1" max="65535" placeholder="3000">
+                    </div>
+                    <div class="form-group">
+                        <label for="app-runtime-type">Runtime</label>
+                        <select id="app-runtime-type" name="runtime-type" required>
+                            <option value="python">Python</option>
+                            <option value="node">Node</option>
+                            <option value="static">Static</option>
+                            <option value="docker">Docker</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="app-description">Description</label>
+                    <input type="text" id="app-description" name="description" placeholder="Brief description">
+                </div>
+
+                <div class="form-group">
+                    <label for="app-path">Path</label>
+                    <input type="text" id="app-path" name="path" required placeholder="/path/to/project">
+                </div>
+
+                <div class="form-group">
+                    <label for="app-runtime-command">Command</label>
+                    <input type="text" id="app-runtime-command" name="runtime-command" required placeholder="python main.py">
+                </div>
+
+                <div class="form-group" id="venv-group">
+                    <label for="app-runtime-venv">Venv Path (optional)</label>
+                    <input type="text" id="app-runtime-venv" name="runtime-venv" placeholder=".venv">
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" id="btn-cancel" class="btn btn-secondary">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div id="delete-modal" class="modal hidden">
+        <div class="modal-backdrop"></div>
+        <div class="modal-content modal-small">
+            <div class="modal-header">
+                <h2>Delete App?</h2>
+            </div>
+            <p id="delete-message">Remove this app from launcher?</p>
+            <div class="form-actions">
+                <button id="btn-cancel-delete" class="btn btn-secondary">Cancel</button>
+                <button id="btn-confirm-delete" class="btn btn-danger">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
