@@ -1,27 +1,52 @@
 [
   {
-    "id": "example-app",
-    "name": "Example App",
-    "port": 3000,
-    "description": "My web application",
+    "id": "example-flask",
+    "name": "Flask App",
+    "port": 5000,
+    "description": "Python Flask web application",
     "color": "#0a84ff",
-    "path": "/path/to/your/project",
+    "path": "/path/to/flask-app",
     "runtime": {
       "type": "python",
-      "command": "python main.py",
-      "venv": null
+      "command": "python app.py",
+      "venv": ".venv"
     }
   },
   {
-    "id": "static-site",
+    "id": "example-conda",
+    "name": "Conda App",
+    "port": 8765,
+    "description": "App requiring conda environment",
+    "color": "#8b5cf6",
+    "path": "/path/to/conda-app",
+    "runtime": {
+      "type": "python",
+      "command": "./scripts/start.sh --web",
+      "venv": "conda:my-env-name"
+    }
+  },
+  {
+    "id": "example-static",
     "name": "Static Site",
     "port": 8001,
-    "description": "HTML/CSS/JS project",
+    "description": "HTML/CSS/JS served via Python http.server",
     "color": "#34d399",
-    "path": "/path/to/static/site",
+    "path": "/path/to/static-site",
     "runtime": {
       "type": "static",
       "command": "python -m http.server 8001"
+    }
+  },
+  {
+    "id": "example-node",
+    "name": "Node App",
+    "port": 3000,
+    "description": "Node.js/Vite application",
+    "color": "#ec4899",
+    "path": "/path/to/node-app",
+    "runtime": {
+      "type": "node",
+      "command": "npm run dev"
     }
   }
 ]
