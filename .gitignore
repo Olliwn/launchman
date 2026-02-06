@@ -1,6 +1,9 @@
 # App registry (contains personal paths)
 apps.json
 
+# Logs
+logs/
+
 # Python
 __pycache__/
 *.py[cod]
