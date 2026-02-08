@@ -6,6 +6,9 @@ let apps = [];
 let editingAppId = null;
 let deletingAppId = null;
 
+// Track transient UI states (e.g. "starting..." spinner) so polls don't overwrite them
+const transientStates = {}; // { appId: 'starting' | 'stopping' }
+
 const appsGrid = document.getElementById('apps-grid');
 const modal = document.getElementById('modal');
 const modalTitle = document.getElementById('modal-title');
@@ -13,11 +16,28 @@ const appForm = document.getElementById('app-form');
 const deleteModal = document.getElementById('delete-modal');
 const deleteMessage = document.getElementById('delete-message');
 
+function isModalOpen() {
+    return !modal.classList.contains('hidden') || !deleteModal.classList.contains('hidden');
+}
+
 // API
 async function fetchApps() {
+    // Don't refresh while user is interacting with a modal
+    if (isModalOpen()) return;
+
     try {
         const response = await fetch('/api/apps');
-        apps = await response.json();
+        const freshApps = await response.json();
+
+        // Clear transient states for apps whose server state now matches the expected outcome
+        for (const [appId, state] of Object.entries(transientStates)) {
+            const freshApp = freshApps.find(a => a.id === appId);
+            if (!freshApp) { delete transientStates[appId]; continue; }
+            if (state === 'starting' && freshApp.running) delete transientStates[appId];
+            if (state === 'stopping' && !freshApp.running) delete transientStates[appId];
+        }
+
+        apps = freshApps;
         renderApps();
     } catch (error) {
         console.error('Failed to fetch apps:', error);
@@ -57,59 +77,65 @@ async function deleteApp(appId) {
 }
 
 async function startApp(appId) {
-    const card = document.querySelector(`[data-id="${appId}"]`);
-    const statusDot = card?.querySelector('.app-status');
-    const startBtn = card?.querySelector('.btn-start');
-    
-    // Show starting state
-    if (statusDot) statusDot.className = 'app-status starting';
-    if (startBtn) {
-        startBtn.disabled = true;
-        startBtn.textContent = '...';
-    }
-    
+    // Set transient state so the UI shows "Starting..." and polls don't overwrite it
+    transientStates[appId] = 'starting';
+    renderApps();
+
     try {
-        const response = await fetch(`/api/apps/${appId}/start`, { method: 'POST' });
-        const result = await response.json();
-        
-        // Update local state
-        const app = apps.find(a => a.id === appId);
-        if (app) app.running = result.running;
-        
-        // Re-render after a short delay to let the server start
-        setTimeout(() => {
-            fetchApps();
-        }, 1000);
-        
+        await fetch(`/api/apps/${appId}/start`, { method: 'POST' });
+        // The next poll cycle will detect the app is running and clear the transient state
     } catch (error) {
         console.error('Failed to start app:', error);
-        fetchApps();
+        delete transientStates[appId];
     }
+
+    // Give it a moment, then poll once to pick up the new state
+    setTimeout(() => fetchApps(), 1500);
 }
 
 async function stopApp(appId) {
+    transientStates[appId] = 'stopping';
+    renderApps();
+
     try {
-        const response = await fetch(`/api/apps/${appId}/stop`, { method: 'POST' });
-        const result = await response.json();
-        
-        const app = apps.find(a => a.id === appId);
-        if (app) app.running = false;
-        
-        renderApps();
+        await fetch(`/api/apps/${appId}/stop`, { method: 'POST' });
     } catch (error) {
         console.error('Failed to stop app:', error);
-        fetchApps();
+        delete transientStates[appId];
     }
+
+    // Poll once to pick up the new state
+    setTimeout(() => fetchApps(), 500);
 }
 
-// Render
+// Render - smart update: only replace rows that actually changed
 function renderApps() {
     if (apps.length === 0) {
         showEmptyState();
         return;
     }
 
-    appsGrid.innerHTML = apps.map(app => createAppRow(app)).join('');
+    const newHtml = apps.map(app => createAppRow(app)).join('');
+
+    // Full rebuild if structure changed (different number of apps, first load, or empty state showing)
+    const existingCards = appsGrid.querySelectorAll('.app-card');
+    if (existingCards.length !== apps.length || appsGrid.querySelector('.empty-state')) {
+        appsGrid.innerHTML = newHtml;
+        attachEventListeners();
+        return;
+    }
+
+    // Patch individual cards that changed
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = newHtml;
+    const newCards = tempDiv.querySelectorAll('.app-card');
+
+    for (let i = 0; i < existingCards.length; i++) {
+        if (existingCards[i].outerHTML !== newCards[i].outerHTML) {
+            existingCards[i].replaceWith(newCards[i].cloneNode(true));
+        }
+    }
+
     attachEventListeners();
 }
 
@@ -154,6 +180,19 @@ function attachEventListeners() {
         });
     });
 
+    // Copy command buttons (CLI-only entries)
+    appsGrid.querySelectorAll('.btn-copy').forEach(btn => {
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            const cmd = btn.dataset.cmd;
+            navigator.clipboard.writeText(cmd).then(() => {
+                const original = btn.innerHTML;
+                btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied`;
+                setTimeout(() => { btn.innerHTML = original; }, 1500);
+            });
+        });
+    });
+
     // Double-click row to open (if running)
     appsGrid.querySelectorAll('.app-card').forEach(card => {
         card.addEventListener('dblclick', () => {
@@ -168,17 +207,35 @@ function attachEventListeners() {
 
 function createAppRow(app) {
     const runtime = app.runtime?.type || 'static';
-    const isRunning = app.running;
-    
+    const isCliOnly = !app.port;
+    const transient = transientStates[app.id];
+    const isRunning = transient === 'starting' ? false : transient === 'stopping' ? true : app.running;
+    const isTransitioning = !!transient;
+
+    let statusClass = isRunning ? 'running' : '';
+    if (isCliOnly) statusClass = 'cli';
+    else if (transient === 'starting') statusClass = 'starting';
+    else if (transient === 'stopping') statusClass = 'stopping';
+
+    // For CLI-only entries, show the command as a monospace description
+    const descriptionHtml = isCliOnly
+        ? `<span class="app-description app-cli-cmd" title="Copy: ${esc(app.description)}">${esc(app.description)}</span>`
+        : `<span class="app-description">${esc(app.description)}</span>`;
+
+    // Port badge: hide for CLI-only, show normally otherwise
+    const portBadge = isCliOnly
+        ? `<span class="badge badge-runtime cli">cli</span>`
+        : `<span class="badge badge-port">:${app.port}</span>`;
+
     return `
-        <div class="app-card" data-id="${app.id}">
-            <div class="app-status ${isRunning ? 'running' : ''}" title="${isRunning ? 'Running' : 'Stopped'}"></div>
+        <div class="app-card${isCliOnly ? ' cli-only' : ''}" data-id="${app.id}">
+            <div class="app-status ${statusClass}" title="${isCliOnly ? 'CLI' : (transient || (isRunning ? 'Running' : 'Stopped'))}"></div>
             <div class="app-info">
                 <span class="app-name">${esc(app.name)}</span>
-                <span class="app-description">${esc(app.description)}</span>
+                ${descriptionHtml}
             </div>
             <div class="app-meta">
-                <span class="badge badge-port">:${app.port}</span>
+                ${portBadge}
                 <span class="badge badge-runtime ${runtime}">${runtime}</span>
             </div>
             <div class="app-actions">
@@ -194,7 +251,19 @@ function createAppRow(app) {
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
                 </button>
-                ${isRunning ? `
+                ${isCliOnly ? `
+                    <button class="btn btn-action btn-copy" data-cmd="${esc(app.runtime?.command || app.description)}" title="Copy command">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Copy
+                    </button>
+                ` : isTransitioning ? `
+                    <button class="btn btn-action" disabled>
+                        ${transient === 'starting' ? 'Starting...' : 'Stopping...'}
+                    </button>
+                ` : isRunning ? `
                     <button class="btn btn-action btn-stop" data-id="${app.id}" title="Stop">
                         <svg viewBox="0 0 24 24" fill="currentColor">
                             <rect x="6" y="6" width="12" height="12" rx="1"></rect>
