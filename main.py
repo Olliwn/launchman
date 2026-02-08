@@ -95,6 +95,41 @@ def is_port_in_use(port: int) -> bool:
         return sock.connect_ex(('127.0.0.1', port)) == 0
 
 
+def kill_by_port(port: int) -> bool:
+    """Kill process listening on a port. Returns True if killed, False otherwise."""
+    if port <= 0:
+        return False  # Skip CLI-only apps with port=0
+    
+    try:
+        import subprocess as sp
+        # Use lsof to find process on port
+        result = sp.run(
+            f"lsof -ti :{port}",
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        
+        pids = result.stdout.strip().split('\n')
+        if not pids or not pids[0]:
+            return False
+        
+        # Kill each PID
+        for pid_str in pids:
+            if pid_str:
+                pid = int(pid_str)
+                try:
+                    # Try SIGTERM first
+                    os.kill(pid, signal.SIGTERM)
+                except:
+                    pass
+        
+        return True
+    except Exception:
+        return False
+
+
 def is_app_running(app_id: str, port: int) -> bool:
     """Check if an app is running (process alive or port in use)."""
     # Check if we have a tracked process
@@ -158,26 +193,31 @@ def start_app_process(app: dict) -> bool:
         return False
 
 
-def stop_app_process(app_id: str) -> bool:
-    """Stop an app's process."""
-    if app_id not in running_processes:
-        return False
-    
-    proc = running_processes[app_id]
-    try:
-        # Kill process group
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        proc.wait(timeout=5)
-    except Exception:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except Exception:
-            pass
-    
+def stop_app_process(app_id: str, port: int = 0) -> bool:
+    """Stop an app's process. Try tracked PID first, then by port."""
+    # Try tracked process first
     if app_id in running_processes:
-        del running_processes[app_id]
+        proc = running_processes[app_id]
+        try:
+            # Kill process group
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except Exception:
+                pass
+        
+        if app_id in running_processes:
+            del running_processes[app_id]
+        
+        return True
     
-    return True
+    # Fallback: try killing by port (for apps started externally or before launcher restart)
+    if port > 0 and kill_by_port(port):
+        return True
+    
+    return False
 
 
 # API Routes
@@ -265,17 +305,19 @@ async def update_app(app_id: str, app_data: AppUpdate):
 @app.delete("/api/apps/{app_id}")
 async def delete_app(app_id: str):
     """Delete an app (stops it first if running)."""
-    # Stop if running
-    stop_app_process(app_id)
-    
     apps = load_apps()
-    original_count = len(apps)
-    apps = [a for a in apps if a["id"] != app_id]
+    app = next((a for a in apps if a["id"] == app_id), None)
     
-    if len(apps) == original_count:
+    if not app:
         raise HTTPException(status_code=404, detail="App not found")
     
+    # Stop if running
+    stop_app_process(app_id, app["port"])
+    
+    # Remove from config
+    apps = [a for a in apps if a["id"] != app_id]
     save_apps(apps)
+    
     return {"success": True, "message": f"App {app_id} deleted"}
 
 
@@ -312,7 +354,7 @@ async def stop_app(app_id: str):
     if not app:
         raise HTTPException(status_code=404, detail="App not found")
     
-    stop_app_process(app_id)
+    stop_app_process(app_id, app["port"])
     
     return {"success": True, "message": "Stopped", "running": False}
 
