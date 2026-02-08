@@ -121,7 +121,6 @@ function renderApps() {
     const existingCards = appsGrid.querySelectorAll('.app-card');
     if (existingCards.length !== apps.length || appsGrid.querySelector('.empty-state')) {
         appsGrid.innerHTML = newHtml;
-        attachEventListeners();
         return;
     }
 
@@ -135,75 +134,50 @@ function renderApps() {
             existingCards[i].replaceWith(newCards[i].cloneNode(true));
         }
     }
-
-    attachEventListeners();
 }
 
-function attachEventListeners() {
-    // Start buttons
-    appsGrid.querySelectorAll('.btn-start').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            startApp(btn.dataset.id);
-        });
-    });
-
-    // Stop buttons
-    appsGrid.querySelectorAll('.btn-stop').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            stopApp(btn.dataset.id);
-        });
-    });
-
-    // Open buttons
-    appsGrid.querySelectorAll('.btn-open').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            window.open(`http://localhost:${btn.dataset.port}`, '_blank');
-        });
-    });
-
-    // Edit buttons
-    appsGrid.querySelectorAll('.btn-edit').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            openEditModal(btn.dataset.id);
-        });
-    });
-
-    // Delete buttons
-    appsGrid.querySelectorAll('.btn-delete').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            openDeleteModal(btn.dataset.id);
-        });
-    });
-
-    // Copy command buttons (CLI-only entries)
-    appsGrid.querySelectorAll('.btn-copy').forEach(btn => {
-        btn.addEventListener('click', e => {
-            e.stopPropagation();
-            const cmd = btn.dataset.cmd;
-            navigator.clipboard.writeText(cmd).then(() => {
-                const original = btn.innerHTML;
-                btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied`;
-                setTimeout(() => { btn.innerHTML = original; }, 1500);
-            });
-        });
-    });
-
-    // Double-click row to open (if running)
-    appsGrid.querySelectorAll('.app-card').forEach(card => {
-        card.addEventListener('dblclick', () => {
-            const appId = card.dataset.id;
-            const app = apps.find(a => a.id === appId);
-            if (app?.running) {
-                window.open(`http://localhost:${app.port}`, '_blank');
-            }
-        });
-    });
+// Event delegation: single listener on the grid, never re-attached
+function findBtn(el, className) {
+    return el.closest('.' + className);
 }
+
+appsGrid.addEventListener('click', e => {
+    let btn;
+
+    if ((btn = findBtn(e.target, 'btn-start'))) {
+        e.stopPropagation();
+        startApp(btn.dataset.id);
+    } else if ((btn = findBtn(e.target, 'btn-stop'))) {
+        e.stopPropagation();
+        stopApp(btn.dataset.id);
+    } else if ((btn = findBtn(e.target, 'btn-open'))) {
+        e.stopPropagation();
+        window.open(`http://localhost:${btn.dataset.port}`, '_blank');
+    } else if ((btn = findBtn(e.target, 'btn-edit'))) {
+        e.stopPropagation();
+        openEditModal(btn.dataset.id);
+    } else if ((btn = findBtn(e.target, 'btn-delete'))) {
+        e.stopPropagation();
+        openDeleteModal(btn.dataset.id);
+    } else if ((btn = findBtn(e.target, 'btn-copy'))) {
+        e.stopPropagation();
+        const cmd = btn.dataset.cmd;
+        navigator.clipboard.writeText(cmd).then(() => {
+            const original = btn.innerHTML;
+            btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg> Copied`;
+            setTimeout(() => { btn.innerHTML = original; }, 1500);
+        });
+    }
+});
+
+appsGrid.addEventListener('dblclick', e => {
+    const card = e.target.closest('.app-card');
+    if (!card) return;
+    const app = apps.find(a => a.id === card.dataset.id);
+    if (app?.running && app.port) {
+        window.open(`http://localhost:${app.port}`, '_blank');
+    }
+});
 
 function createAppRow(app) {
     const runtime = app.runtime?.type || 'static';
